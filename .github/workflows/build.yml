@@ -1,0 +1,96 @@
+name: Construire l'APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remettre les fichiers dans les bons dossiers
+        run: |
+          set -e
+          SRC=app/src/main/java/com/climhaier/app
+          mkdir -p "$SRC" test
+          for f in HaierIr.java MainActivity.java; do
+            if [ -f "$f" ]; then mv "$f" "$SRC/"; fi
+          done
+          if [ -f HaierIrTest.java ]; then mv HaierIrTest.java test/; fi
+
+          if [ ! -f app/build.gradle ]; then
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.climhaier.app'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.climhaier.app'
+                  minSdk 21
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+          fi
+
+          if [ ! -f app/src/main/AndroidManifest.xml ]; then
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.TRANSMIT_IR" />
+              <uses-feature android:name="android.hardware.consumerir" android:required="true" />
+              <application
+                  android:label="Clim Haier"
+                  android:allowBackup="true"
+                  android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          fi
+
+          find . -path ./.git -prune -o -type f -print | sort
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Tests de l'encodeur IR
+        run: |
+          mkdir -p /tmp/t
+          javac -d /tmp/t app/src/main/java/com/climhaier/app/HaierIr.java test/HaierIrTest.java
+          java -cp /tmp/t HaierIrTest
+
+      - name: Construire l'APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClimHaier-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
